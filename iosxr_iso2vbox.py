@@ -73,6 +73,7 @@ import tarfile
 # Telnet ports used to access IOS XR via socat
 CONSOLE_PORT = 65000
 AUX_PORT = 65001
+PORT3 = 65002
 
 # General-purpose retry interval and timeout value (10 minutes)
 RETRY_INTERVAL = 5
@@ -134,7 +135,7 @@ def cleanup_vmname(vmname, delete=False):
     """
     # Power off VM if it is running
     vms_list_running = run(['VBoxManage', 'list', 'runningvms'])
-    if re.search('"' + vmname + '"', vms_list_running):
+    if re.search('"' + vmname + '"', str(vms_list_running)):
         logger.debug("'%s' is running, powering off...", vmname)
         run(['VBoxManage', 'controlvm', vmname, 'poweroff'])
 
@@ -143,7 +144,7 @@ def cleanup_vmname(vmname, delete=False):
         elapsed_time = 0
         while True:
             vms_list_running = run(['VBoxManage', 'list', 'runningvms'])
-            if not re.search('"' + vmname + '"', vms_list_running):
+            if not re.search('"' + vmname + '"', str(vms_list_running)):
                 logger.debug('Successfully shut down')
                 break
             elif elapsed_time < TIMEOUT:
@@ -162,7 +163,7 @@ def cleanup_vmname(vmname, delete=False):
 
     if delete:
         vms_list = run(['VBoxManage', 'list', 'vms'])
-        if re.search('"' + vmname + '"', vms_list):
+        if re.search('"' + vmname + '"', str(vms_list)):
             logger.debug("'%s' is registered, unregistering and deleting it",
                          vmname)
             run(['VBoxManage', 'unregistervm', vmname, '--delete'])
@@ -180,7 +181,7 @@ def cleanup_vdi(vdi, delete=True):
     # Capacity:       46080 MBytes
     # Encryption:     disabled
 
-    if vdi not in vdi_list:
+    if vdi not in str(vdi_list):
         logger.info("VDI '%s' is not currently registered. "
                     "No cleanup needed.", vdi)
         return
@@ -245,7 +246,7 @@ def configure_xr(verbosity):
                              pattern, command)
                 child.sendline(command)
                 child.expect(prompt)
-                if re.search(pattern, child.before):
+                if re.search(str(pattern), str(child.before)):
                     found_match = True
                     logger.debug("Found '%s' in '%s'", pattern, command)
                     break
@@ -312,7 +313,7 @@ def configure_xr(verbosity):
         child.sendline("bash -c rpm -qa | grep k9sec")
         child.expect(prompt)
         output = child.before
-        if '-k9sec' in output:
+        if '-k9sec' in str(output):
             crypto = True
             logger.debug("Crypto k9 image detected")
         else:
@@ -323,7 +324,7 @@ def configure_xr(verbosity):
         child.sendline("bash -c rpm -qa | grep mgbl")
         child.expect(prompt)
         output = child.before
-        if '-mgbl' in output:
+        if '-mgbl' in str(output):
             mgbl = True
             logger.debug("MGBL package detected")
         else:
@@ -429,11 +430,16 @@ def configure_xr(verbosity):
         child.expect("RP/0/RP0/CPU0:ios")
 
         # Set up IOS XR ssh if a k9/crypto image
+        # Set up IOS XR ssh if a k9/crypto image
         if crypto:
             child.sendline("crypto key generate rsa")
-            child.expect("How many bits in the modulus")
-            child.sendline("2048")  # Send enter to get default 2048
-            child.expect(prompt)  # Wait for the prompt
+            index = child.expect(["How many bits in the modulus", "really want to replace"])
+            if index == 0:
+                child.sendline("2048")  # Send enter to get default 2048
+                child.expect(prompt)  # Wait for the prompt
+            if index == 1:
+                child.sendline("no")
+                child.expect(prompt)  # Wait for the prompt
 
         # Final check to make sure MGMT stayed up
         xr_cli_wait_for_output('show ipv4 interface MgmtEth0/RP0/CPU0/0', '10.0.2.15')
@@ -490,7 +496,7 @@ def define_vbox_vm(vmname, base_dir, input_iso):
         logger.debug('%s is a mini image, RAM allocated is %s MB',
                      input_iso, ram)
     elif 'full' in input_iso:
-        ram = 5120
+        ram = 7000
         logger.debug('%s is a full image, RAM allocated is %s MB',
                      input_iso, ram)
     else:
@@ -594,6 +600,11 @@ def define_vbox_vm(vmname, base_dir, input_iso):
          '--uart2', '0x2f8', '3', '--uartmode2', 'tcpserver',
          str(AUX_PORT)])
 
+    logger.debug('Add an aux port')
+    run(['VBoxManage', 'modifyvm', vmname,
+         '--uart3', '0x3E8', '4', '--uartmode3', 'tcpserver',
+         str(PORT3)])
+
     # Option 3: Connect via telnet
     # VBoxManage modifyvm $VMNAME --uart1 0x3f8 4 --uartmode1 tcpserver 6000
     # VBoxManage modifyvm $VMNAME --uart2 0x2f8 3 --uartmode2 tcpserver 6001
@@ -635,7 +646,8 @@ def live_config_vbox_vm(vmname, box_dir, verbose, debug=False):
     elapsed_time = 0
     while True:
         vms_list_running = run(['VBoxManage', 'list', 'runningvms'])
-        if re.search('"' + vmname + '"', vms_list_running):
+        #import pdb;pdb.set_trace()
+        if re.search('"' + vmname + '"', str(vms_list_running)):
             logger.debug('Successfully started to boot VM disk image')
             break
         elif elapsed_time < TIMEOUT:
@@ -759,12 +771,12 @@ def main():
     logger.debug('Input ISO is %s', input_iso)
     logger.debug('VM Name:  %s', vmname)
     logger.debug('base_dir: %s', base_dir)
-
     vbox = define_vbox_vm(vmname, base_dir, input_iso)
 
     box_dir = os.path.dirname(vbox)
 
     try:
+
         live_config_vbox_vm(vmname, box_dir, args.verbose, args.debug)
 
         box_out = vbox_to_vagrant(vmname, box_dir)
@@ -780,6 +792,7 @@ def main():
         # Continue with exception handling
         raise
     finally:
+        pass
         # Attempt to clean up after ourselves even if something went wrong
         cleanup_vmname(vmname, delete=True)
 
