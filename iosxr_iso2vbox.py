@@ -73,10 +73,11 @@ import tarfile
 # Telnet ports used to access IOS XR via socat
 CONSOLE_PORT = 65000
 AUX_PORT = 65001
+PORT3 = 65002
 
 # General-purpose retry interval and timeout value (10 minutes)
 RETRY_INTERVAL = 5
-TIMEOUT = 600
+TIMEOUT = 900
 
 logger = logging.getLogger(__name__)
 
@@ -431,9 +432,13 @@ def configure_xr(verbosity):
         # Set up IOS XR ssh if a k9/crypto image
         if crypto:
             child.sendline("crypto key generate rsa")
-            child.expect("How many bits in the modulus")
-            child.sendline("2048")  # Send enter to get default 2048
-            child.expect(prompt)  # Wait for the prompt
+            index = child.expect(["How many bits in the modulus", "really want to replace"])
+            if index == 0:
+                child.sendline("2048")  # Send enter to get default 2048
+                child.expect(prompt)  # Wait for the prompt
+            if index == 1:
+                child.sendline("no")
+                child.expect(prompt)  # Wait for the prompt
 
         # Final check to make sure MGMT stayed up
         xr_cli_wait_for_output('show ipv4 interface MgmtEth0/RP0/CPU0/0', '10.0.2.15')
@@ -490,7 +495,7 @@ def define_vbox_vm(vmname, base_dir, input_iso):
         logger.debug('%s is a mini image, RAM allocated is %s MB',
                      input_iso, ram)
     elif 'full' in input_iso:
-        ram = 5120
+        ram = 8192
         logger.debug('%s is a full image, RAM allocated is %s MB',
                      input_iso, ram)
     else:
@@ -593,6 +598,10 @@ def define_vbox_vm(vmname, base_dir, input_iso):
     run(['VBoxManage', 'modifyvm', vmname,
          '--uart2', '0x2f8', '3', '--uartmode2', 'tcpserver',
          str(AUX_PORT)])
+
+    run(['VBoxManage', 'modifyvm', vmname,
+         '--uart3', '0x3E8', '4', '--uartmode3', 'tcpserver',
+         str(PORT3)])
 
     # Option 3: Connect via telnet
     # VBoxManage modifyvm $VMNAME --uart1 0x3f8 4 --uartmode1 tcpserver 6000
