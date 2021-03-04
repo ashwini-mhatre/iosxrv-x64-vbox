@@ -792,16 +792,6 @@ def main():
         # Attempt to clean up after ourselves even if something went wrong
         cleanup_vmname(vmname, delete=True)
 
-    # Run basic sanity tests unless -s
-    if not args.skip_test:
-        logger.info('Running basic unit tests on Vagrant VirtualBox...')
-
-        # hackety hack hack hack...
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-        from iosxr_test import main as test_main
-        test_main(box_out, args.verbose, args.debug)
-
     logger.info('Single node use:')
     logger.info(" vagrant init 'IOS XRv'")
     logger.info(" vagrant box add --name 'IOS XRv' %s --force", box_out)
